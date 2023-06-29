@@ -1,0 +1,64 @@
+#!/bin/bash
+
+# strict mode - based on http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -euo pipefail
+IFS=$'\n\t'
+
+GITHUB_AUTH_TOKEN=$(cat ~/github-access-token)
+
+usage() {
+    echo "Usage: portainer_diff_pr <CE_NUMBER> <EE_NUMBER>" 1>&2
+    echo "Example: portainer_diff_pr 1234 5678" 1>&2
+    echo "$HOME/github-access-token must be set" 1>&2
+}
+
+# if first parameter is "help" print usage
+if [ "${1:-}" = "help" ]; then
+    usage
+    exit 0
+fi
+
+# if missing parameters or missing token, print usage
+if [ $# -ne 2 ] || [ -z "$GITHUB_AUTH_TOKEN" ]; then
+    usage
+    exit 1
+fi
+
+
+ce=${1}
+ee=${2}
+
+TMP_DIR=/tmp/diff
+
+mkdir -p "$TMP_DIR"
+
+curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer/pulls/"$ce" > "$TMP_DIR"/ce.raw.diff
+curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer-ee/pulls/"$ee" > "$TMP_DIR"/ee.raw.diff
+
+echo "Removing indexes from raw data"
+grep -v -E '^index [0-9a-f]+\.\.[0-9a-f]+' "$TMP_DIR"/ce.raw.diff >"$TMP_DIR"/ce.diff
+grep -v -E '^index [0-9a-f]+\.\.[0-9a-f]+' "$TMP_DIR"/ee.raw.diff >"$TMP_DIR"/ee.diff
+
+echo "Generating CE operations"
+v=$(grep -n -E 'diff --git|new file mode|deleted file mode' "$TMP_DIR"/ce.diff)$'\n'$(grep -n -A 2 'similarity index' "$TMP_DIR"/ce.diff || true)
+v=$(sort -un <(echo "$v"))
+v=$(awk '{sub(/^[0-9]+(:|-)/, ""); print $0}' <(echo "$v"))
+v=$(awk '{print (($0 ~ /^(new|deleted|rename to)/) ? $0"\n--" : $0)}' <(echo "$v"))
+echo "$v" >"$TMP_DIR"/ce.ops.txt
+
+echo "Generating EE operations"
+v=$(grep -n -E 'diff --git|new file mode|deleted file mode' "$TMP_DIR"/ee.diff)$'\n'$(grep -n -A 2 'similarity index' "$TMP_DIR"/ee.diff || true)
+v=$(sort -un <(echo "$v"))
+v=$(awk '{sub(/^[0-9]+(:|-)/, ""); print $0}' <(echo "$v"))
+v=$(awk '{print (($0 ~ /^(new|deleted|rename to)/) ? $0"\n--" : $0)}' <(echo "$v"))
+echo "$v" >"$TMP_DIR"/ee.ops.txt
+
+echo "Generating CE changed files"
+cat "$TMP_DIR"/ce.ops.txt | grep -e 'diff --git' | cut -d ' ' -f 3 | cut -d / -f 2- >"$TMP_DIR"/ce.files.txt
+echo "Generating EE changed files"
+cat "$TMP_DIR"/ee.ops.txt | grep -e 'diff --git' | cut -d ' ' -f 3 | cut -d / -f 2- >"$TMP_DIR"/ee.files.txt
+
+echo "Done"
+code -d "$TMP_DIR"/ee.files.txt "$TMP_DIR"/ce.files.txt
+code -d "$TMP_DIR"/ee.ops.txt "$TMP_DIR"/ce.ops.txt
+code -d "$TMP_DIR"/ee.diff "$TMP_DIR"/ce.diff

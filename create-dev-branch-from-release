@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# strict mode - based on http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -euo pipefail
+IFS=$'\n\t'
+
+DEBUG=${DEBUG:-""}
+
+if [ -n "$DEBUG" ]; then
+    set -x
+fi
+
+
+# check if parameter $1 is not set or is "help" and print usage
+if [ -z "${1:-}" ] || [ "${1:-}" = "help" ]; then
+    echo "Usage: $0 <base_branch>"
+    exit 0
+fi
+
+
+BRANCH_BASE="$1"
+
+git fetch origin develop
+RELEASE_BASED_BRANCH=$(git branch --show-current)
+DEVELOP_BASED_BRANCH=$(git branch --show-current | awk '/EE-[0-9]+\/+/{sub(/EE-[0-9]+\//, "&auto-develop/")} 1')
+[[ "$DEVELOP_BASED_BRANCH" != "$RELEASE_BASED_BRANCH" ]] || (echo "Unable to generate new branch name" && exit 1)
+[[ $(git fetch origin "$DEVELOP_BASED_BRANCH"; echo $?) -ne 0 ]] || (echo "Remote branch '$DEVELOP_BASED_BRANCH' already exists" && exit 1)
+IFS=" " read -r -a commits <<< "$(git log --no-merges --pretty=format:"%h " "$BRANCH_BASE"...HEAD | tac | xargs)"
+git checkout -b "$DEVELOP_BASED_BRANCH" origin/develop
+git cherry-pick "${commits[@]}"
+
+
+echo "$DEVELOP_BASED_BRANCH"

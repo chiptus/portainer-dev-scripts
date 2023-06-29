@@ -1,0 +1,61 @@
+#!/bin/zsh
+
+ee() {
+    VERSION=${1:-develop}
+    DATA=${2:-"$HOME/portainer-data/ee"}
+    portainer "$VERSION" "-ee" "$DATA" "${@:3}"
+}
+
+
+ce() {
+    VERSION=${1:-develop}
+    DATA=${2:-"$HOME/portainer-data/ce"}
+    portainer "$VERSION" "" "$DATA" "${@:3}"
+}
+
+portainer() {
+    VERSION=${1:-develop}
+    EDITION=${2:-""}
+    DATA=$3
+    IMAGE="portainerci/portainer$EDITION:$VERSION"
+    
+    echo "running portainer$EDITION version $VERSION with data $DATA"
+    IFS="," read -r -A env_array <<< "$PORTAINER_ENVS"
+    declare -a envs
+    for (( i = 1; i <= $#env_array; i++ )) do
+      if [[ -n $env_array[i] ]]; then
+        envs+=(-e $env_array[i])
+      fi
+    done
+    
+    
+   docker pull "$IMAGE"
+    
+   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" "${@:4}"
+}
+
+
+delete_feature_branches() {
+  local feat_id=$1
+  branches=$(git branch --sort=-committerdate | grep "$feat_id") # gives a list of branches with feat_id in the name sorted by date
+  for branch (${(f)branches}); do
+  printf "Delete branch %s? [y/n] " "$branch"
+  read -r response
+    if [[ $response =~ ^([yY][eE][sS]|[yY])$ ]]; then
+      git branch -D "${branch##*( )}"
+      echo "$branch" deleted
+    fi
+  done
+}
+
+go_to_latest_feature_branch() {
+  local feat_id=$1
+  branch=$(git branch --sort=-committerdate | grep "$feat_id" | head -1) # gives a list of branches with feat_id in the name sorted by date
+  if [[ -n $branch ]]; then
+    git checkout "${branch##*( )}"
+  fi
+}
+
+alias feat="go_to_latest_feature_branch"
+alias clear_feat="delete_feature_branches"
+
