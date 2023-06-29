@@ -1,5 +1,11 @@
 #!/bin/zsh
 
+export PORTAINER_HOME="$HOME/portainer-org"
+alias cdp='cd $PORTAINER_HOME/portainer'
+alias cdpe='cd $PORTAINER_HOME/portainer-ee'
+alias cda='cd $PORTAINER_HOME/agent'
+
+
 ee() {
     VERSION=${1:-develop}
     DATA=${2:-"$HOME/portainer-data/ee"}
