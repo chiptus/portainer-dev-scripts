@@ -7,22 +7,20 @@ IFS=$'\n\t'
 DEBUG=${DEBUG:-""}
 
 if [ -n "$DEBUG" ]; then
-    set -x
+  set -x
 fi
 
 # check if parameter $1 is set and is "help" and print usage
 if [ "${1:-}" = "help" ]; then
-    echo "Usage: $0 <base_branch>"
-    exit 0
+  echo "Usage: $0 <base_branch>"
+  exit 0
 fi
-
 
 BASE_BRANCH="${1:-"develop"}"
 
 ORIGINAL_BRANCH=$(git branch --show-current)
 
-IFS=" " read -r -a commits <<< "$(git log --no-merges --pretty=format:"%h " "origin/$BASE_BRANCH"...HEAD | tac | xargs)"
-
+IFS=" " read -r -a commits <<<"$(git log --no-merges --pretty=format:"%h " "$BASE_BRANCH"...HEAD | tac | xargs)"
 
 other_edition_path=$HOME/portainer-org/portainer-ee
 if [[ $PWD == *portainer-ee ]]; then
@@ -31,9 +29,8 @@ fi
 
 cd "$other_edition_path"
 
-
 git fetch other "$ORIGINAL_BRANCH"
 git fetch origin "$BASE_BRANCH"
 
-git checkout -b "$ORIGINAL_BRANCH" origin/"$BASE_BRANCH"
+git checkout -b "$ORIGINAL_BRANCH" "$BASE_BRANCH"
 git cherry-pick "${commits[@]}"

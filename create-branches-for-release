@@ -1,0 +1,79 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# shellcheck source=/dev/null
+source utils.sh
+# shellcheck source=/dev/null
+source log.sh
+
+# on any step, if any error stop
+
+# 1. publish branch
+# 2. if no dev branch - create dev branch from release branch
+# 3. if no other release branch - create other release branch from original release branch
+# 4. if no other dev branch - create other dev branch from original dev branch
+
+RELEASE=${1}
+
+branch_name="$(get_current_branch_name)"
+dev_branch_name=$(get_dev_branch_name "$branch_name") || (log_error "$dev_branch_name" && exit 1)
+
+# fetch all branches
+git fetch --all
+
+# publish branch
+gpb
+
+log_info "creating branches for release: $RELEASE"
+log_info "branch_name: $branch_name"
+log_info "dev_branch_name: $dev_branch_name"
+
+# origin dev branch
+if ! git show-ref --verify --quiet "refs/heads/${dev_branch_name}"; then
+  log_info "create dev branch ($dev_branch_name) from release branch ($branch_name)"
+  create-dev-branch-from-release "$RELEASE"
+else
+  log_info "dev branch ($dev_branch_name) already exists"
+  git checkout "$dev_branch_name"
+fi
+
+log_info "publishing dev branch ($dev_branch_name)"
+gpb
+
+# return to original branch
+git checkout "$branch_name"
+
+other_edition_path=$(get_other_edition_path)
+
+# other release branch
+other_branch_exists=$(cd "$other_edition_path" && git show-ref --verify --quiet "refs/heads/${branch_name}" && echo "exists" || echo "")
+
+if [[ -z "$other_branch_exists" ]]; then
+  log_info "create other edition release branch ($branch_name) from release branch ($branch_name)"
+  create-other-edition-branch "$RELEASE"
+fi
+
+cd "$other_edition_path" || exit 1
+
+git checkout "$branch_name"
+gpb
+
+# other dev branch
+if ! git show-ref --verify --quiet "refs/heads/${dev_branch_name}"; then
+  log_info "create other edition dev branch ($dev_branch_name) from other edition release branch ($branch_name)"
+  create-dev-branch-from-release "$RELEASE"
+else
+  log_info "dev branch ($dev_branch_name) already exists"
+  git checkout "$dev_branch_name"
+fi
+
+log_info "publishing other edition dev branch ($dev_branch_name)"
+gpb
+
+echo "====================================================="
+echo "branches are published, use the following links to open PRs"
+echo "ce $branch_name -> https://github.com/portainer/portainer/compare/$RELEASE...$branch_name?expand=1"
+echo "ce $dev_branch_name -> https://github.com/portainer/portainer/compare/develop...$dev_branch_name?expand=1"
+echo "ee $branch_name -> https://github.com/portainer/portainer-ee/compare/$RELEASE...$branch_name?expand=1"
+echo "ee $dev_branch_name -> https://github.com/portainer/portainer-ee/compare/develop...$dev_branch_name?expand=1"
