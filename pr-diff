@@ -4,12 +4,19 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-GITHUB_AUTH_TOKEN=$(cat ~/github-access-token)
+DEBUG=${DEBUG:-false}
+if [[ "$DEBUG" == "1" ]]; then
+    set -x
+fi
+
+SCRIPT_PATH=$(dirname -- "${BASH_SOURCE[0]}")
+GITHUB_AUTH_TOKEN_FILE="$SCRIPT_PATH/pr-diff-token"
 
 usage() {
     echo "Usage: portainer_diff_pr <CE_NUMBER> <EE_NUMBER>" 1>&2
     echo "Example: portainer_diff_pr 1234 5678" 1>&2
-    echo "$HOME/github-access-token must be set" 1>&2
+    echo "$GITHUB_AUTH_TOKEN_FILE must be set" 1>&2
+    echo "create a classic token at https://github.com/settings/personal-access-tokens/new with repo scope" 1>&2
 }
 
 # if first parameter is "help" print usage
@@ -19,11 +26,24 @@ if [ "${1:-}" = "help" ]; then
 fi
 
 # if missing parameters or missing token, print usage
-if [ $# -ne 2 ] || [ -z "$GITHUB_AUTH_TOKEN" ]; then
+if [ $# -ne 2 ]; then
+    echo "Missing parameters" 1>&2
     usage
     exit 1
 fi
 
+if [[ ! -f "$GITHUB_AUTH_TOKEN_FILE" ]]; then
+    echo "$GITHUB_AUTH_TOKEN_FILE not found" 1>&2
+    usage
+    exit 1
+fi
+
+GITHUB_AUTH_TOKEN=$(cat "$GITHUB_AUTH_TOKEN_FILE")
+
+if [ -z "$GITHUB_AUTH_TOKEN" ]; then
+    echo "$GITHUB_AUTH_TOKEN_FILE is empty"
+    exit 1
+fi
 
 ce=${1}
 ee=${2}
@@ -32,8 +52,8 @@ TMP_DIR=/tmp/diff
 
 mkdir -p "$TMP_DIR"
 
-curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer/pulls/"$ce" > "$TMP_DIR"/ce.raw.diff
-curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer-ee/pulls/"$ee" > "$TMP_DIR"/ee.raw.diff
+curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer/pulls/"$ce" >"$TMP_DIR"/ce.raw.diff
+curl -s -H "Authorization: token $GITHUB_AUTH_TOKEN" -H "Accept: application/vnd.github.v3.diff" https://api.github.com/repos/portainer/portainer-ee/pulls/"$ee" >"$TMP_DIR"/ee.raw.diff
 
 echo "Removing indexes from raw data"
 grep -v -E '^index [0-9a-f]+\.\.[0-9a-f]+' "$TMP_DIR"/ce.raw.diff >"$TMP_DIR"/ce.diff
