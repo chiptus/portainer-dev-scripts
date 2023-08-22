@@ -23,9 +23,9 @@ portainer() {
     VERSION=${1:-develop}
     EDITION=${2:-""}
     DATA=$3
-    IMAGE="portainerci/portainer$EDITION:$VERSION"
+    IMAGE=${IMAGE:-"portainerci/portainer$EDITION:$VERSION"}
     
-    echo "running portainer$EDITION version $VERSION with data $DATA"
+    echo "running portainer$EDITION version $VERSION with data $DATA with image $IMAGE"
     IFS="," read -r -A env_array <<< "$PORTAINER_ENVS"
     declare -a envs
     for (( i = 1; i <= $#env_array; i++ )) do
@@ -34,10 +34,10 @@ portainer() {
       fi
     done
     
-    
+   
    docker pull "$IMAGE"
     
-   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" "${@:4}"
+   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" --log-level=DEBUG "${@:4}"
 }
 
 
