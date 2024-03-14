@@ -9,21 +9,26 @@ alias cda='cd $PORTAINER_HOME/agent'
 ee() {
     VERSION=${1:-develop}
     DATA=${2:-"$HOME/portainer-data/ee"}
-    portainer "$VERSION" "-ee" "$DATA" "${@:3}"
+    LICENSE=${LICENSE:-"3-t5gcf0YSSM/pKb78y4qdiAGk972RLknf0d4oRexT8w5lTcVzRCZ3Zm+LIAf0pl3QNMF9sjEdNi1taoWfr9mZZo+v"}
+    portainer "$VERSION" "-ee" "$DATA" --license-key "$LICENSE" "${@:3}"
 }
 
 
 ce() {
     VERSION=${1:-develop}
     DATA=${2:-"$HOME/portainer-data/ce"}
-    portainer "$VERSION" "" "$DATA" "${@:3}"
+    portainer "$VERSION" "-ce" "$DATA" "${@:3}" 
 }
 
 portainer() {
     VERSION=${1:-develop}
     EDITION=${2:-""}
     DATA=$3
-    IMAGE=${IMAGE:-"portainerci/portainer$EDITION:$VERSION"}
+    IMAGE="portainerci/portainer$EDITION:$VERSION"
+    # if version is docker image, use that instead
+    if [[ "$VERSION" == *"/"* ]]; then
+      IMAGE=$VERSION
+    fi
     
     echo "running portainer$EDITION version $VERSION with data $DATA with image $IMAGE"
     IFS="," read -r -A env_array <<< "$PORTAINER_ENVS"
@@ -34,10 +39,48 @@ portainer() {
       fi
     done
     
-   
-   docker pull "$IMAGE"
+   if [[ -z "${SKIP_PULL:=""}" ]]; then
+     docker pull "$IMAGE"
+   fi 
     
-   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" --log-level=DEBUG "${@:4}"
+   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" --log-level=DEBUG --admin-password '$2a$10$OAD9oxPqXo3KMj4MJDAS5O/KozGFxQDX.uztGUVytD/p7El10Mtk2' "${@:4}"
+}
+
+agent() {
+  VERSION=${1:-develop}
+  DOCKER_HOST=${2:-""}
+
+  IMAGE=${IMAGE:-"portainerci/agent:$VERSION"}
+  
+  echo "running agent version $VERSION with data $DATA with image $IMAGE"
+
+  cmd=(docker)    
+  if [ -n "$DOCKER_HOST" ]; then
+      cmd+=(-H "$DOCKER_HOST")
+  fi
+
+  pull_cmd=("${cmd[@]}" pull "$IMAGE")
+   
+  echo "pulling agent image"
+  "${pull_cmd[@]}"
+
+  cmd+=("run" "--rm")    
+  
+  IFS="," read -r -A env_array <<< "$PORTAINER_AGENT_ENVS"
+  for (( i = 1; i <= $#env_array; i++ )) do
+    if [[ -n $env_array[i] ]]; then
+      cmd+=(-e $env_array[i])
+    fi
+  done
+
+  cmd+=(-v /var/run/docker.sock:/var/run/docker.sock:z)
+  cmd+=(-v /:/host:z)
+  cmd+=(-p 9001:9001)
+  cmd+=(-e LOG_LEVEL=DEBUG)
+  cmd+=($IMAGE)
+  echo "running agent image"
+
+  "${cmd[@]}"
 }
 
 
