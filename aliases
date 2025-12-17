@@ -1,15 +1,17 @@
 #!/bin/zsh
 
-export PORTAINER_HOME="$HOME/portainer-org"
-alias cdp='cd $PORTAINER_HOME/portainer'
-alias cdpe='cd $PORTAINER_HOME/portainer-ee'
-alias cda='cd $PORTAINER_HOME/agent'
+export PORTAINER_ORG_HOME="$HOME/portainer-org"
+export PORTAINER_SUITE_HOME="$PORTAINER_ORG_HOME/portainer-suite"
+alias cdp='cd $PORTAINER_SUITE_HOME'
+alias cdpe='cd $PORTAINER_SUITE_HOME/package/server-ee'
+alias cdpc='cd $PORTAINER_SUITE_HOME/package/server-ce'
+alias cda='cd $PORTAINER_SUITE_HOME/package/agent'
 
 
 ee() {
     VERSION=${1:-develop}
     DATA=${2:-"$HOME/portainer-data/ee"}
-    LICENSE=${LICENSE:-"3-t5gcf0YSSM/pKb78y4qdiAGk972RLknf0d4oRexT8w5lTcVzRCZ3Zm+LIAf0pl3QNMF9sjEdNi1taoWfr9mZZo+v"}
+    LICENSE=${LICENSE:-"3-zkyVhDa3X3py0RvHtI9THWdxBqxz+9kMNLie0J0it1p63m8IBPXdeZxgK1/yUS8E0Ep2NCsr3lLcG7SXMF8SG3Y3"}
     portainer "$VERSION" "-ee" "$DATA" --license-key "$LICENSE" "${@:3}"
 }
 
@@ -24,13 +26,14 @@ portainer() {
     VERSION=${1:-develop}
     EDITION=${2:-""}
     DATA=$3
+    PORT=19000
     IMAGE="portainerci/portainer$EDITION:$VERSION"
     # if version is docker image, use that instead
     if [[ "$VERSION" == *"/"* ]]; then
       IMAGE=$VERSION
     fi
     
-    echo "running portainer$EDITION version $VERSION with data $DATA with image $IMAGE"
+    echo "running portainer$EDITION on port $PORT version $VERSION with data $DATA with image $IMAGE"
     IFS="," read -r -A env_array <<< "$PORTAINER_ENVS"
     declare -a envs
     for (( i = 1; i <= $#env_array; i++ )) do
@@ -43,7 +46,12 @@ portainer() {
      docker pull "$IMAGE"
    fi 
     
-   docker run --rm $envs -p 18000:8000 -p 19000:9000 -v /var/run/docker.sock:/var/run/docker.sock:z -v "$DATA:/data" "$IMAGE" --log-level=DEBUG --admin-password '$2a$10$OAD9oxPqXo3KMj4MJDAS5O/KozGFxQDX.uztGUVytD/p7El10Mtk2' "${@:4}"
+   docker run --rm $envs -p 18000:8000 \
+    -p $PORT:9000 \
+    -v /var/run/docker.sock:/var/run/docker.sock:z \
+    --name "portainer-dev-$EDITION" \
+    -v "$DATA:/data" "$IMAGE" \
+     --log-level=DEBUG --admin-password '$2a$10$OAD9oxPqXo3KMj4MJDAS5O/KozGFxQDX.uztGUVytD/p7El10Mtk2' "${@:4}"
 }
 
 agent() {
