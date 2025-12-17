@@ -113,6 +113,26 @@ go_to_latest_feature_branch() {
   fi
 }
 
+sync_changes() {
+  if [[ "$#" -eq 1 && "$1" == "help" ]]; then
+    echo "Usage: sync_changes [ee|ce=ee] [branch|commit=HEAD]"
+    echo "The first argument is the target edition (default: ee)"
+    echo "The second argument is the branch or commit to diff against (default: HEAD)"
+    echo "This must be run from the portainer-suite root directory."
+    return 1
+  fi
+
+  if [[ ! -d "package/server-ee" ]] || [[ ! -d "package/server-ce" ]]; then
+    echo "This script must be run from the portainer-suite root directory."
+    echo "Expected to find package/server-ee and package/server-ce directories."
+    return 1
+  fi
+
+  TO_EDITION=${1:-"ee"}
+  BRANCH=${2:-"HEAD"}
+  git diff $BRANCH | git apply -p3 --directory="package/server-$TO_EDITION/" --reject
+}
+
 alias feat="go_to_latest_feature_branch"
 alias clear_feat="delete_feature_branches"
 
