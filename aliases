@@ -7,11 +7,16 @@ alias cdpe='cd $PORTAINER_SUITE_HOME/package/server-ee'
 alias cdpc='cd $PORTAINER_SUITE_HOME/package/server-ce'
 alias cda='cd $PORTAINER_SUITE_HOME/package/agent'
 
+alias pe='pnpm --filter @portainer/ee'
+alias pc='pnpm --filter @portainer/ce'
 
 ee() {
     VERSION=${1:-develop}
     DATA=${2:-"$HOME/portainer-data/ee"}
-    LICENSE=${LICENSE:-"3-zkyVhDa3X3py0RvHtI9THWdxBqxz+9kMNLie0J0it1p63m8IBPXdeZxgK1/yUS8E0Ep2NCsr3lLcG7SXMF8SG3Y3"}
+    if [[ -z "$LICENSE" ]]; then
+        echo "Error: LICENSE environment variable is not set" >&2
+        return 1
+    fi
     portainer "$VERSION" "-ee" "$DATA" --license-key "$LICENSE" "${@:3}"
 }
 
@@ -130,7 +135,24 @@ sync_changes() {
 
   TO_EDITION=${1:-"ee"}
   BRANCH=${2:-"HEAD"}
-  git diff $BRANCH | git apply -p3 --directory="package/server-$TO_EDITION/" --reject
+
+  # Determine source edition (opposite of target)
+  if [[ "$TO_EDITION" == "ee" ]]; then
+    FROM_EDITION="ce"
+  else
+    FROM_EDITION="ee"
+  fi
+
+  # Only diff files in the source package directory, then apply to target
+  git diff $BRANCH -- "package/server-$FROM_EDITION/" | \
+    git apply -p3 --directory="package/server-$TO_EDITION/" --reject
+
+  # check untracked files
+  git ls-files --others --exclude-standard -- "package/server-$FROM_EDITION/" | while IFS= read -r file; do
+      dest="${file/server-$FROM_EDITION/server-$TO_EDITION}"              
+      mkdir -p "$(dirname "$dest")"                                      
+      cp "$file" "$dest"       
+    done    
 }
 
 alias feat="go_to_latest_feature_branch"

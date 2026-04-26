@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# strict mode - based on http://redsymbol.net/articles/unofficial-bash-strict-mode/
+set -euo pipefail
+IFS=$'\n\t'
+
+DEBUG=${DEBUG:-false}
+if [[ "$DEBUG" == "1" ]]; then
+    set -x
+fi
+
+SCRIPT_PATH=$(dirname -- "${BASH_SOURCE[0]}")
+source "$SCRIPT_PATH/log.sh"
+
+usage() {
+    echo "Usage: branch-diff <branch1> <target_branch1> <branch2> <target_branch2>" 1>&2
+    echo "Example: branch-diff feature/fix-bug-v2.20 release/2.20 feature/fix-bug-v2.21 release/2.21" 1>&2
+    echo "" 1>&2
+    echo "This script compares the differences between two branches against their respective target branches." 1>&2
+    echo "It generates diffs for branch1...target_branch1 and branch2...target_branch2, then compares them." 1>&2
+}
+
+# if first parameter is "help" print usage
+if [ "${1:-}" = "help" ]; then
+    usage
+    exit 0
+fi
+
+# if missing parameters, print usage
+if [ $# -ne 4 ]; then
+    log_error "Missing parameters"
+    usage
+    exit 1
+fi
+
+branch1=origin/${1}
+target_branch1=origin/${2}
+branch2=origin/${3}
+target_branch2=origin/${4}
+
+# Verify all branches exist
+log_info "Verifying branches exist..."
+for branch in "$branch1" "$branch2" "$target_branch1" "$target_branch2"; do
+    if ! git rev-parse --verify "$branch" >/dev/null 2>&1; then
+        log_exit "Branch '$branch' does not exist"
+    fi
+done
+
+TMP_DIR=/tmp/branch-diff
+
+mkdir -p "$TMP_DIR"
+
+log_info "Generating diff for $branch1 against $target_branch1..."
+git diff "$target_branch1...$branch1" >"$TMP_DIR"/branch1.raw.diff
+
+log_info "Generating diff for $branch2 against $target_branch2..."
+git diff "$target_branch2...$branch2" >"$TMP_DIR"/branch2.raw.diff
+
+log_info "Removing indexes from raw data"
+grep -v -E '^index [0-9a-f]+\.\.[0-9a-f]+' "$TMP_DIR"/branch1.raw.diff >"$TMP_DIR"/branch1.diff
+grep -v -E '^index [0-9a-f]+\.\.[0-9a-f]+' "$TMP_DIR"/branch2.raw.diff >"$TMP_DIR"/branch2.diff
+
+log_info "Generating branch1 operations"
+v=$(grep -n -E 'diff --git|new file mode|deleted file mode' "$TMP_DIR"/branch1.diff)$'\n'$(grep -n -A 2 'similarity index' "$TMP_DIR"/branch1.diff || true)
+v=$(sort -un <(echo "$v"))
+v=$(awk '{sub(/^[0-9]+(:|-)/, ""); print $0}' <(echo "$v"))
+v=$(awk '{print (($0 ~ /^(new|deleted|rename to)/) ? $0"\n--" : $0)}' <(echo "$v"))
+echo "$v" >"$TMP_DIR"/branch1.ops.txt
+
+log_info "Generating branch2 operations"
+v=$(grep -n -E 'diff --git|new file mode|deleted file mode' "$TMP_DIR"/branch2.diff)$'\n'$(grep -n -A 2 'similarity index' "$TMP_DIR"/branch2.diff || true)
+v=$(sort -un <(echo "$v"))
+v=$(awk '{sub(/^[0-9]+(:|-)/, ""); print $0}' <(echo "$v"))
+v=$(awk '{print (($0 ~ /^(new|deleted|rename to)/) ? $0"\n--" : $0)}' <(echo "$v"))
+echo "$v" >"$TMP_DIR"/branch2.ops.txt
+
+log_info "Generating branch1 changed files"
+cat "$TMP_DIR"/branch1.ops.txt | grep -e 'diff --git' | cut -d ' ' -f 3 | cut -d / -f 2- >"$TMP_DIR"/branch1.files.txt
+log_info "Generating branch2 changed files"
+cat "$TMP_DIR"/branch2.ops.txt | grep -e 'diff --git' | cut -d ' ' -f 3 | cut -d / -f 2- >"$TMP_DIR"/branch2.files.txt
+
+log_info "Done"
+echo ""
+echo "Comparing:"
+echo "  $branch1 vs $target_branch1"
+echo "  $branch2 vs $target_branch2"
+echo ""
+code -d "$TMP_DIR"/branch1.files.txt "$TMP_DIR"/branch2.files.txt
+code -d "$TMP_DIR"/branch1.ops.txt "$TMP_DIR"/branch2.ops.txt
+code -d "$TMP_DIR"/branch1.diff "$TMP_DIR"/branch2.diff
