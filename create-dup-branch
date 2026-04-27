@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+IFS=$'\n\t'
+
+# shellcheck source=/dev/null
+source log.sh
+
+if [ -z "${1:-}" ] || [ "${1:-}" = "help" ]; then
+  echo "Usage: $0 <source_base> <source_branch> <dest_base> <dest_branch>"
+  echo ""
+  echo "Cherry-picks commits from source_branch (not in source_base) onto a new"
+  echo "branch rooted at dest_base."
+  exit 0
+fi
+
+SOURCE_BASE="$1"
+SOURCE_BRANCH="$2"
+DEST_BASE="$3"
+DEST_BRANCH="$4"
+
+git fetch origin "$SOURCE_BASE" "$SOURCE_BRANCH"
+git fetch origin "$DEST_BASE"
+
+IFS=" " read -r -a commits <<<"$(git log --no-merges --pretty=format:"%h " "origin/${SOURCE_BASE}...origin/${SOURCE_BRANCH}" | tac | xargs)"
+
+if [ "${#commits[@]}" -eq 0 ]; then
+  log_exit "no commits found between $SOURCE_BASE and $SOURCE_BRANCH"
+fi
+
+log_info "cherry-picking ${#commits[@]} commit(s) onto $DEST_BRANCH (from $DEST_BASE)"
+
+git checkout -b "$DEST_BRANCH" "origin/$DEST_BASE"
+git cherry-pick "${commits[@]}"
+
+echo "$DEST_BRANCH"

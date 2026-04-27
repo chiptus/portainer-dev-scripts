@@ -7,73 +7,85 @@ source utils.sh
 # shellcheck source=/dev/null
 source log.sh
 
-# on any step, if any error stop
+RELEASE_MODE=false
+if [ "${1:-}" = "--release" ]; then
+  RELEASE_MODE=true
+  shift
+fi
 
-# 1. publish branch
-# 2. if no dev branch - create dev branch from release branch
-# 3. if no other release branch - create other release branch from original release branch
-# 4. if no other dev branch - create other dev branch from original dev branch
+if [ -z "${1:-}" ] || [ -z "${2:-}" ] || [ "${1:-}" = "help" ]; then
+  echo "Usage: $0 [--release] <TICKET_ID> <RELEASE...>"
+  echo ""
+  echo "Default: on a dev branch, creates release branch(es) and opens PRs."
+  echo "--release: on a release branch, creates the dev branch and opens a PR."
+  exit 0
+fi
 
-RELEASE=${1}
+TICKET_ID="$1"
+shift
+RELEASES=("$@")
 
-branch_name="$(get_current_branch_name)"
-dev_branch_name=$(get_dev_branch_name "$branch_name") || (log_error "$dev_branch_name" && exit 1)
-
-# fetch all branches
 git fetch --all
 
-# publish branch
-gpb
+current_branch=$(get_current_branch_name)
+log_info "current branch: $current_branch"
 
-log_info "creating branches for release: $RELEASE"
-log_info "branch_name: $branch_name"
-log_info "dev_branch_name: $dev_branch_name"
+if [ "$RELEASE_MODE" = true ]; then
+  if [ "${#RELEASES[@]}" -ne 1 ]; then
+    log_exit "--release requires exactly one RELEASE argument"
+  fi
+  release_base="${RELEASES[0]}"
+  dev_branch=$(get_dev_branch_name "$current_branch" "$TICKET_ID" "$release_base")
 
-# origin dev branch
-if ! git show-ref --verify --quiet "refs/heads/${dev_branch_name}"; then
-  log_info "create dev branch ($dev_branch_name) from release branch ($branch_name)"
-  create-dev-branch-from-release "$RELEASE"
+  log_info "publishing release branch: $current_branch"
+  git push -u origin "$current_branch"
+
+  if ! git show-ref --verify --quiet "refs/heads/${dev_branch}"; then
+    log_info "creating dev branch ($dev_branch) from release branch ($current_branch)"
+    create-dup-branch "$release_base" "$current_branch" develop "$dev_branch"
+  else
+    log_info "dev branch ($dev_branch) already exists"
+    git checkout "$dev_branch"
+  fi
+
+  log_info "publishing dev branch: $dev_branch"
+  git push -u origin "$dev_branch"
+
+  git checkout "$current_branch"
+
+  echo "====================================================="
+  echo "branches are published, use the following links to open PRs:"
+  echo "develop  $dev_branch -> https://github.com/portainer/portainer-suite/compare/develop...${dev_branch}?expand=1"
+  echo "$release_base  $current_branch -> https://github.com/portainer/portainer-suite/compare/${release_base}...${current_branch}?expand=1"
 else
-  log_info "dev branch ($dev_branch_name) already exists"
-  git checkout "$dev_branch_name"
+  log_info "publishing dev branch: $current_branch"
+  git push -u origin "$current_branch"
+
+  release_branches=()
+  for release_base in "${RELEASES[@]}"; do
+    release_branch=$(get_release_branch_name "$current_branch" "$TICKET_ID" "$release_base")
+    release_branches+=("$release_base $release_branch")
+
+    if ! git show-ref --verify --quiet "refs/heads/${release_branch}"; then
+      log_info "creating release branch ($release_branch) from dev branch ($current_branch)"
+      create-dup-branch develop "$current_branch" "$release_base" "$release_branch"
+    else
+      log_info "release branch ($release_branch) already exists"
+      git checkout "$release_branch"
+    fi
+
+    log_info "publishing release branch: $release_branch"
+    git push -u origin "$release_branch"
+
+    git checkout "$current_branch"
+  done
+
+  echo "====================================================="
+  echo "branches are published, use the following links to open PRs:"
+  echo "develop  $current_branch -> https://github.com/portainer/portainer-suite/compare/develop...${current_branch}?expand=1"
+  for entry in "${release_branches[@]}"; do
+    base="${entry%% *}"
+    branch="${entry#* }"
+    echo "$base  $branch -> https://github.com/portainer/portainer-suite/compare/${base}...${branch}?expand=1"
+  done
 fi
-
-log_info "publishing dev branch ($dev_branch_name)"
-gpb
-
-# return to original branch
-git checkout "$branch_name"
-
-other_edition_path=$(get_other_edition_path)
-
-# other release branch
-other_branch_exists=$(cd "$other_edition_path" && git show-ref --verify --quiet "refs/heads/${branch_name}" && echo "exists" || echo "")
-
-if [[ -z "$other_branch_exists" ]]; then
-  log_info "create other edition release branch ($branch_name) from release branch ($branch_name)"
-  create-other-edition-branch "$RELEASE"
-fi
-
-cd "$other_edition_path" || exit 1
-
-git checkout "$branch_name"
-gpb
-
-# other dev branch
-if ! git show-ref --verify --quiet "refs/heads/${dev_branch_name}"; then
-  log_info "create other edition dev branch ($dev_branch_name) from other edition release branch ($branch_name)"
-  create-dev-branch-from-release "$RELEASE"
-else
-  log_info "dev branch ($dev_branch_name) already exists"
-  git checkout "$dev_branch_name"
-fi
-
-log_info "publishing other edition dev branch ($dev_branch_name)"
-gpb
-
-echo "====================================================="
-echo "branches are published, use the following links to open PRs"
-echo "ce $branch_name -> https://github.com/portainer/portainer/compare/$RELEASE...$branch_name?expand=1"
-echo "ce $dev_branch_name -> https://github.com/portainer/portainer/compare/develop...$dev_branch_name?expand=1"
-echo "ee $branch_name -> https://github.com/portainer/portainer-ee/compare/$RELEASE...$branch_name?expand=1"
-echo "ee $dev_branch_name -> https://github.com/portainer/portainer-ee/compare/develop...$dev_branch_name?expand=1"
